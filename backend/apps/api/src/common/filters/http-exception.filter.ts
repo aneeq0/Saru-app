@@ -49,10 +49,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack);
       // Surface Prisma / driver hints so empty-DB and schema issues are diagnosable
-      const prismaCode =
-        typeof (exception as { code?: unknown }).code === 'string'
-          ? (exception as { code: string }).code
-          : undefined;
+      const maybeCode = (exception as Error & { code?: unknown }).code;
+      const prismaCode = typeof maybeCode === 'string' ? maybeCode : undefined;
       details = {
         name: exception.name,
         ...(prismaCode ? { prismaCode } : {}),
