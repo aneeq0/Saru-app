@@ -10,7 +10,21 @@ import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor';
 import { RedisIoAdapter } from './realtime/redis-io.adapter';
 
+function assertRequiredEnv() {
+  const required = ['DATABASE_URL', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const;
+  const missing = required.filter((key) => !process.env[key]?.trim());
+  if (missing.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[saru] FATAL missing env: ${missing.join(', ')}. Set them on the Railway service Variables tab.`,
+    );
+    process.exit(1);
+  }
+}
+
 async function bootstrap() {
+  assertRequiredEnv();
+
   const app = await NestFactory.create(AppModule, { rawBody: false });
   const config = app.get(ConfigService);
   const log = new Logger('Bootstrap');
@@ -84,4 +98,8 @@ async function bootstrap() {
   );
 }
 
-void bootstrap();
+void bootstrap().catch((err: unknown) => {
+  // eslint-disable-next-line no-console
+  console.error('[saru] FATAL bootstrap failed', err);
+  process.exit(1);
+});

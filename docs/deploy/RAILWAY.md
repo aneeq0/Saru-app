@@ -20,13 +20,28 @@ Map variables (Railway variable references):
 | `REDIS_URL` | Redis plugin |
 | `PORT` | Provided by Railway (do not hardcode) |
 
-## 3. Set application env
+## 3. Set application env (required or the service crash-loops)
 
-Copy from [`backend/.env.example`](../../backend/.env.example) and set at least:
+On the **Saru-app** service → **Variables**, set:
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | **Yes** | Use Railway variable reference from the Postgres service |
+| `JWT_ACCESS_SECRET` | **Yes** | Long random string (32+ chars) |
+| `JWT_REFRESH_SECRET` | **Yes** | Long random string (32+ chars) |
+| `REDIS_URL` | Optional | Add a Redis plugin if you want multi-instance Socket.IO |
+| `WEB_ORIGIN` | Recommended | Vercel admin origin(s), comma-separated |
+| `SESSION_COOKIE_SECURE` | Prod | `true` |
+| `SESSION_COOKIE_SAMESITE` | Prod | `none` |
+| `NODE_ENV` | Recommended | `production` |
+| `PORT` | Auto | Railway injects this — do not hardcode |
+
+Example:
 
 ```env
 NODE_ENV=production
 API_BASE_PATH=api
+DATABASE_URL=${{Postgres.DATABASE_URL}}
 JWT_ACCESS_SECRET=<generate-long-random>
 JWT_REFRESH_SECRET=<generate-long-random>
 JWT_ACCESS_TTL=15m
@@ -39,17 +54,18 @@ CSRF_COOKIE_NAME=XSRF-TOKEN
 LOG_LEVEL=info
 ```
 
-`WEB_ORIGIN` must match the Vercel admin origin exactly (scheme + host, no trailing slash). Add preview URLs as a comma-separated list if needed.
+`WEB_ORIGIN` must match the Vercel admin origin exactly (scheme + host, no trailing slash).
 
 ## 4. Deploy behavior
 
-`start:railway` runs:
+1. **preDeployCommand:** `pnpm run prisma:deploy` (migrations before traffic)
+2. **startCommand:** `node apps/api/dist/main.js`
+3. Health check: `GET /api/health/live` (300s timeout)
 
-1. `prisma migrate deploy`
-2. Nest API (`node apps/api/dist/main.js`)
-
-Health check: `GET /api/health/live`  
-Readiness: `GET /api/health/ready`
+If the service shows **Crashed**, open **Deployments → Logs** and look for:
+- `FATAL missing env` → Variables tab incomplete
+- Prisma / P1001 → `DATABASE_URL` not linked to this service
+- Bootstrap / JWT errors → secrets missing or invalid
 
 ## 5. Optional seed (once)
 

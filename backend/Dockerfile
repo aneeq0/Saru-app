@@ -37,9 +37,11 @@ COPY --from=build /app/apps/api/.npmrc ./apps/api/
 COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/packages/database ./packages/database
+COPY --from=build /app/scripts ./scripts
+
+RUN chmod +x /app/scripts/start-railway.sh
 
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["pnpm", "run", "start:railway"]
+# Migrations run via Railway preDeployCommand; container only serves the API.
+CMD ["node", "apps/api/dist/main.js"]
