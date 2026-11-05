@@ -43,5 +43,4 @@ RUN chmod +x /app/scripts/start-railway.sh
 
 EXPOSE 3000
 
-# Migrations run via Railway preDeployCommand; container only serves the API.
-CMD ["node", "apps/api/dist/main.js"]
+CMD ["sh", "scripts/start-railway.sh"]

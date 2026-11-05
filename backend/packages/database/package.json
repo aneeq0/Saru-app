@@ -20,10 +20,10 @@
   "dependencies": {
     "@prisma/client": "6.19.0",
     "argon2": "^0.45.1",
-    "prisma": "6.19.0"
+    "prisma": "6.19.0",
+    "tsx": "^4.20.5"
   },
   "devDependencies": {
-    "tsx": "^4.20.5",
     "typescript": "^5.7.3"
   },
   "prisma": {

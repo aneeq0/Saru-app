@@ -18,6 +18,17 @@ export class HealthController {
   @Get('ready')
   async ready() {
     await this.prisma.$queryRaw`SELECT 1`;
-    return { status: 'ready' };
+    let users = 0;
+    let schemaOk = true;
+    try {
+      users = await this.prisma.user.count();
+    } catch {
+      schemaOk = false;
+    }
+    return {
+      status: schemaOk ? 'ready' : 'degraded',
+      schemaOk,
+      users,
+    };
   }
 }

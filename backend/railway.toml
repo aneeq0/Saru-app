@@ -8,10 +8,8 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Run migrations before traffic switches to the new replica (avoids healthcheck race).
-preDeployCommand = ["pnpm", "run", "prisma:deploy"]
-startCommand = "node apps/api/dist/main.js"
-# Give the process time to boot after image start.
+# Migrate + seed + start in one command so a failed pre-deploy cannot leave an empty DB.
+startCommand = "sh scripts/start-railway.sh"
 healthcheckPath = "/api/health/live"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

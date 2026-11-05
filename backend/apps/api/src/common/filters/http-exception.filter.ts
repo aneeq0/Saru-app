@@ -48,6 +48,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       this.logger.error(exception.message, exception.stack);
+      // Surface Prisma / driver hints so empty-DB and schema issues are diagnosable
+      const prismaCode =
+        typeof (exception as { code?: unknown }).code === 'string'
+          ? (exception as { code: string }).code
+          : undefined;
+      details = {
+        name: exception.name,
+        ...(prismaCode ? { prismaCode } : {}),
+        hint: exception.message.slice(0, 300),
+      };
       message = 'An unexpected error occurred';
     }
 
