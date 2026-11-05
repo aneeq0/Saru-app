@@ -21,6 +21,8 @@ Use [`web/.env.production.example`](../../web/.env.production.example) as the te
 | `VITE_APP_NAME` | `Saru International` | Optional |
 | `VITE_APP_ENV` | `production` | Optional |
 
+`VITE_API_BASE_URL` **must** include `https://` and end with `/api`. A bare host (or host without `/api`) used to cause a blank login page (HTML mistaken for a session → redirect loop).
+
 Vite bakes `VITE_*` into the client bundle at **build** time. Change them → redeploy.
 
 ## 3. CORS / cookies on Railway

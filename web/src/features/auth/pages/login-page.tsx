@@ -54,8 +54,17 @@ export function LoginPage() {
     }
   }, [from, isAuthenticated, navigate])
 
-  if (status === 'authenticated') {
+  // Require a real user — status alone can be wrong if session parse failed
+  if (isAuthenticated) {
     return <Navigate to={from} replace />
+  }
+
+  if (status === 'idle' || status === 'loading') {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-app-bg p-8 text-sm text-text-secondary">
+        Checking session…
+      </div>
+    )
   }
 
   async function onSubmit(values: LoginFormValues) {

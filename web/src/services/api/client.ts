@@ -86,6 +86,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw new ApiError(response.status, payload as ApiErrorBody | string)
   }
 
+  // Misconfigured VITE_API_BASE_URL can hit the Vercel SPA (HTML 200) instead of the API.
+  if (!isJson) {
+    throw new ApiError(
+      0,
+      'API returned a non-JSON response. Check VITE_API_BASE_URL (must be https://…/api).',
+    )
+  }
+
   return payload as T
 }
 
