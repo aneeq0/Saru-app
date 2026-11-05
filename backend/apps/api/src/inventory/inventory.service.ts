@@ -428,12 +428,128 @@ export class InventoryService {
       })),
       meta: {
         page: 1,
-        pageSize: rows.length,
+        pageSize: rows.length || 20,
         total: rows.length,
         totalPages: 1,
         hasNextPage: false,
         hasPreviousPage: false,
+        nextCursor: null,
       },
     };
+  }
+
+  emptyList(query: { page?: number; pageSize?: number }) {
+    const { page, pageSize } = normalizePage(query);
+    return toPaginated([], 0, page, pageSize);
+  }
+
+  async listReservations(query: {
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    status?: string;
+  }) {
+    const { page, pageSize, skip, take } = normalizePage(query);
+    const where: Prisma.StockReservationWhereInput = {};
+    if (query.status) where.status = query.status.toUpperCase();
+    if (query.q) {
+      where.OR = [
+        { sourceType: { contains: query.q, mode: 'insensitive' } },
+        { status: { contains: query.q, mode: 'insensitive' } },
+      ];
+    }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.stockReservation.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.stockReservation.count({ where }),
+    ]);
+    const warehouseIds = [...new Set(rows.map((r) => r.warehouseId))];
+    const variantIds = [...new Set(rows.map((r) => r.variantId))];
+    const [warehouses, variants] = await Promise.all([
+      warehouseIds.length
+        ? this.prisma.warehouse.findMany({ where: { id: { in: warehouseIds } } })
+        : Promise.resolve([]),
+      variantIds.length
+        ? this.prisma.productVariant.findMany({
+            where: { id: { in: variantIds } },
+            include: { product: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const warehouseById = new Map(warehouses.map((w) => [w.id, w]));
+    const variantById = new Map(variants.map((v) => [v.id, v]));
+    return toPaginated(
+      rows.map((r) => {
+        const variant = variantById.get(r.variantId);
+        const warehouse = warehouseById.get(r.warehouseId);
+        return {
+          id: r.id,
+          sku: variant?.sku ?? '—',
+          productName: variant?.product?.name ?? variant?.name ?? '—',
+          warehouseName: warehouse?.name ?? '—',
+          quantity: Number(r.quantity),
+          sourceType: r.sourceType,
+          sourceReference: r.sourceId,
+          status: r.status.toLowerCase(),
+          expiresAt: r.expiresAt?.toISOString() ?? null,
+          createdAt: r.createdAt.toISOString(),
+          updatedAt: r.updatedAt.toISOString(),
+        };
+      }),
+      total,
+      page,
+      pageSize,
+    );
+  }
+
+  async listReceipts(query: {
+    page?: number;
+    pageSize?: number;
+    q?: string;
+    status?: string;
+  }) {
+    const { page, pageSize, skip, take } = normalizePage(query);
+    const where: Prisma.GoodsReceiptWhereInput = {};
+    if (query.status) {
+      where.status = query.status.toUpperCase() as never;
+    }
+    if (query.q) {
+      where.OR = [
+        { reference: { contains: query.q, mode: 'insensitive' } },
+        { notes: { contains: query.q, mode: 'insensitive' } },
+      ];
+    }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.goodsReceipt.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: { warehouse: true, shipment: true, lines: true },
+      }),
+      this.prisma.goodsReceipt.count({ where }),
+    ]);
+    return toPaginated(
+      rows.map((r) => ({
+        id: r.id,
+        reference: r.reference,
+        status: r.status.toLowerCase(),
+        warehouseName: r.warehouse.name,
+        shipmentReference: r.shipment.reference,
+        receivedQty: r.lines.reduce((s, l) => s + Number(l.receivedQty), 0),
+        acceptedQty: r.lines.reduce((s, l) => s + Number(l.acceptedQty), 0),
+        lineCount: r.lines.length,
+        receivedAt: r.receivedAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      })),
+      total,
+      page,
+      pageSize,
+    );
   }
 }

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Module, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Module,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { randomUUID } from 'crypto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -8,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NumberSequenceService } from '../numbering/number-sequence.service';
 import { AppError, ErrorCodes } from '../common/errors/app-error';
 import { ConfigService } from '@nestjs/config';
+import { normalizePage, toPaginated } from '../common/pagination/paginate';
 
 @ApiTags('documents')
 @ApiBearerAuth()
@@ -92,12 +101,80 @@ class DocumentsController {
 
   @Get()
   @RequirePermissions('documents:view')
-  async list() {
-    const data = await this.prisma.document.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 100,
+  async list(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+  ) {
+    const p = normalizePage({
+      page: page ? Number(page) : 1,
+      pageSize: pageSize ? Number(pageSize) : 20,
     });
-    return { data };
+    const where = q
+      ? {
+          OR: [
+            { reference: { contains: q, mode: 'insensitive' as const } },
+            { title: { contains: q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.document.findMany({
+        where,
+        skip: p.skip,
+        take: p.take,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.document.count({ where }),
+    ]);
+    return toPaginated(
+      rows.map((d) => ({
+        id: d.id,
+        reference: d.reference,
+        title: d.title,
+        status: String(d.status).toLowerCase(),
+        mimeType: d.mimeType,
+        sizeBytes: d.sizeBytes,
+        createdAt: d.createdAt.toISOString(),
+        updatedAt: d.updatedAt.toISOString(),
+      })),
+      total,
+      p.page,
+      p.pageSize,
+    );
+  }
+
+  @Get('templates')
+  @RequirePermissions('templates:view')
+  templates() {
+    return toPaginated(
+      [
+        {
+          id: 'tpl-delivery-challan',
+          name: 'Delivery challan',
+          category: 'fulfilment',
+          format: 'pdf',
+          status: 'active',
+        },
+        {
+          id: 'tpl-goods-receipt',
+          name: 'Goods receipt note',
+          category: 'imports',
+          format: 'pdf',
+          status: 'active',
+        },
+        {
+          id: 'tpl-invoice',
+          name: 'Commercial invoice',
+          category: 'finance',
+          format: 'pdf',
+          status: 'active',
+        },
+      ],
+      3,
+      1,
+      20,
+    );
   }
 
   @Get(':id')

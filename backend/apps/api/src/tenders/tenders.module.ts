@@ -142,6 +142,87 @@ class TendersController {
     return this.get(tender.id);
   }
 
+  @Get('bids')
+  @RequirePermissions('bids:view')
+  async listBids(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const p = normalizePage({
+      page: page ? Number(page) : 1,
+      pageSize: pageSize ? Number(pageSize) : 20,
+    });
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.tenderBid.findMany({
+        skip: p.skip,
+        take: p.take,
+        orderBy: { createdAt: 'desc' },
+        include: { tender: true },
+      }),
+      this.prisma.tenderBid.count(),
+    ]);
+    return toPaginated(
+      rows.map((b) => ({
+        id: b.id,
+        reference: b.reference,
+        tenderId: b.tenderId,
+        tenderNumber: b.tender.reference,
+        tenderReference: b.tender.reference,
+        tenderTitle: b.tender.title,
+        status: b.status.toLowerCase(),
+        totalAmount: b.totalAmount != null ? Number(b.totalAmount) : null,
+        amount: b.totalAmount != null ? Number(b.totalAmount) : null,
+        currency: b.currency,
+        submittedAt: b.submittedAt?.toISOString() ?? null,
+        createdAt: b.createdAt.toISOString(),
+        updatedAt: b.updatedAt.toISOString(),
+      })),
+      total,
+      p.page,
+      p.pageSize,
+    );
+  }
+
+  @Get('compliance')
+  @RequirePermissions('tender_compliance:view')
+  async listCompliance(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const p = normalizePage({
+      page: page ? Number(page) : 1,
+      pageSize: pageSize ? Number(pageSize) : 20,
+    });
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.tenderChecklistItem.findMany({
+        skip: p.skip,
+        take: p.take,
+        orderBy: { completedAt: 'desc' },
+        include: { tender: true },
+      }),
+      this.prisma.tenderChecklistItem.count(),
+    ]);
+    return toPaginated(
+      rows.map((c) => ({
+        id: c.id,
+        tenderId: c.tenderId,
+        tenderNumber: c.tender.reference,
+        tenderReference: c.tender.reference,
+        code: c.code,
+        title: c.title,
+        required: c.required,
+        completed: c.completed,
+        status: c.completed ? 'complete' : 'open',
+        dueDate: c.tender.submissionDeadline?.toISOString() ?? null,
+        notes: c.notes,
+        completedAt: c.completedAt?.toISOString() ?? null,
+      })),
+      total,
+      p.page,
+      p.pageSize,
+    );
+  }
+
   @Get(':id')
   @RequirePermissions('tenders:view')
   async get(@Param('id') id: string) {

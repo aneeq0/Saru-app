@@ -25,6 +25,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SyncModule } from './sync/sync.module';
 import { DocumentsModule } from './documents/documents.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { FrontendCompatModule } from './compat/frontend-compat.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { RealtimeModule } from './realtime/realtime.module';
     SyncModule,
     DocumentsModule,
     RealtimeModule,
+    FrontendCompatModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -108,6 +108,50 @@ class DeliveriesController {
     return this.get(delivery.id);
   }
 
+  @Get('challans')
+  @RequirePermissions('challans:view')
+  async listChallans(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    const p = normalizePage({
+      page: page ? Number(page) : 1,
+      pageSize: pageSize ? Number(pageSize) : 20,
+    });
+    const where = { challanNo: { not: null } };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.delivery.findMany({
+        where,
+        skip: p.skip,
+        take: p.take,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          warehouse: true,
+          lines: true,
+          contract: { include: { department: true } },
+        },
+      }),
+      this.prisma.delivery.count({ where }),
+    ]);
+    return toPaginated(
+      rows.map((d) => ({
+        id: d.id,
+        challanNumber: d.challanNo,
+        deliveryNumber: d.reference,
+        departmentName: d.contract?.department?.name ?? '—',
+        itemCount: d.lines.length,
+        status: d.status.toLowerCase(),
+        issuedAt: d.dispatchedAt?.toISOString() ?? d.createdAt.toISOString(),
+        warehouseName: d.warehouse.name,
+        createdAt: d.createdAt.toISOString(),
+        updatedAt: d.updatedAt.toISOString(),
+      })),
+      total,
+      p.page,
+      p.pageSize,
+    );
+  }
+
   @Get(':id')
   @RequirePermissions('deliveries:view')
   async get(@Param('id') id: string) {
