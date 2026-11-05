@@ -1,0 +1,25 @@
+{
+  "name": "saru-international-backend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Saru International central NestJS backend",
+  "scripts": {
+    "dev:infra": "docker compose up -d postgres redis",
+    "dev:infra:down": "docker compose down",
+    "build:api": "pnpm --filter @saru/api run build",
+    "start:api": "pnpm --filter @saru/api start:prod",
+    "start:railway": "pnpm prisma:deploy && pnpm start:api",
+    "dev:api": "pnpm run build:api && pnpm run start:api",
+    "test": "pnpm --filter @saru/api test",
+    "typecheck": "pnpm --filter @saru/api exec tsc -p tsconfig.build.json --noEmit",
+    "prisma:generate": "pnpm --filter @saru/database exec prisma generate",
+    "prisma:migrate": "pnpm --filter @saru/database exec prisma migrate dev",
+    "prisma:deploy": "pnpm --filter @saru/database exec prisma migrate deploy",
+    "prisma:seed": "pnpm --filter @saru/database exec tsx prisma/seed.ts",
+    "docker:build": "docker build -t saru-api ."
+  },
+  "packageManager": "pnpm@10.11.1",
+  "engines": {
+    "node": ">=20"
+  }
+}

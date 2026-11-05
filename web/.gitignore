@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+.pnpm-store
+tools
+
+# Build
+dist
+dist-ssr
+*.local
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Logs / coverage
+logs
+*.log
+coverage
+playwright-report
+test-results
+blob-report
+
+# Editor
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# TypeScript
+*.tsbuildinfo
+node_modules/.tmp
+
+# MSW (generated)
+# Keep public/mockServiceWorker.js if committed after pnpm exec msw init
+
+# Oxlint leftover
+.oxlintrc.json

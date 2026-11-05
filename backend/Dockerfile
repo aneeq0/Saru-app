@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+# Railway / production image for the NestJS API (pnpm workspace).
+# Root directory for this service: `backend/`
+
+FROM node:20-bookworm-slim AS base
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@10.11.1 --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/api/.npmrc ./apps/api/
+COPY packages/database/package.json ./packages/database/
+RUN pnpm install --frozen-lockfile
+
+FROM deps AS build
+COPY . .
+ENV NODE_ENV=production
+RUN pnpm prisma:generate
+RUN pnpm build:api
+
+FROM base AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY --from=build /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/api/package.json ./apps/api/
+COPY --from=build /app/apps/api/.npmrc ./apps/api/
+COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/packages/database ./packages/database
+
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["pnpm", "run", "start:railway"]

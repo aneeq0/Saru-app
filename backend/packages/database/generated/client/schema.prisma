@@ -1,0 +1,1369 @@
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../generated/client"
+  // native = local macOS/Windows; debian = Railway/Docker (node:*-bookworm)
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+  PENDING
+}
+
+enum SystemRoleCode {
+  OWNER
+  TENDER_MANAGER
+  IMPORT_MANAGER
+  INVENTORY_MANAGER
+  DOCUMENTATION_OFFICER
+  ACCOUNTS_OFFICER
+  AUDITOR
+}
+
+enum AuthChannel {
+  WEB
+  MOBILE
+  API
+}
+
+enum EntityLifecycleStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum ShipmentStatus {
+  DRAFT
+  ORDERED
+  IN_TRANSIT
+  ARRIVED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  DISCREPANCY
+  CLOSED
+  CANCELLED
+}
+
+enum ReceiptStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  POSTED
+  REJECTED
+  CANCELLED
+}
+
+enum InventoryCondition {
+  AVAILABLE
+  RESERVED
+  QUARANTINED
+  DAMAGED
+  EXPIRED
+  IN_TRANSIT
+}
+
+enum MovementType {
+  RECEIPT
+  DISPATCH
+  ADJUSTMENT
+  TRANSFER_OUT
+  TRANSFER_IN
+  RESERVATION
+  RESERVATION_RELEASE
+  RETURN
+  REVERSAL
+  OPENING
+  COUNT
+}
+
+enum TenderStatus {
+  DRAFT
+  PREPARING
+  COMPLIANCE_REVIEW
+  READY
+  SUBMITTED
+  UNDER_EVALUATION
+  AWARDED
+  PARTIALLY_AWARDED
+  LOST
+  CANCELLED
+  CLOSED
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  AMENDED
+  FULFILLED
+  CLOSED
+  CANCELLED
+}
+
+enum SecurityInstrumentType {
+  CDR
+  BANK_GUARANTEE
+  PERFORMANCE_BOND
+  OTHER
+}
+
+enum SecurityInstrumentStatus {
+  DRAFT
+  ISSUED
+  ACTIVE
+  RELEASE_REQUESTED
+  RELEASED
+  EXPIRED
+  FORFEITED
+  CANCELLED
+}
+
+enum DeliveryStatus {
+  DRAFT
+  ASSIGNED
+  PICKING
+  READY
+  DISPATCHED
+  DELIVERED
+  PARTIAL
+  EXCEPTION
+  RETURNED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  FINALIZED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+  VOID
+}
+
+enum PaymentStatus {
+  DRAFT
+  RECORDED
+  ALLOCATED
+  REVERSED
+  CANCELLED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED
+  CANCELLED
+  EXPIRED
+}
+
+enum SyncOpStatus {
+  ACCEPTED
+  APPLIED
+  PENDING_REVIEW
+  CONFLICT
+  REJECTED
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DEAD
+}
+
+// ─── Auth & Organization ─────────────────────────────────────────────────────
+
+model User {
+  id                 String     @id @default(uuid()) @db.Uuid
+  email              String     @unique
+  firstName          String
+  lastName           String
+  displayName        String
+  status             UserStatus @default(PENDING)
+  avatarUrl          String?
+  departmentId       String?    @db.Uuid
+  mustChangePassword Boolean    @default(false)
+  mfaEnabled         Boolean    @default(false)
+  lastLoginAt        DateTime?
+  deactivatedAt      DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  credential              UserCredential?
+  sessions                UserSession[]
+  roles                   UserRole[]
+  permissionOverrides     UserPermissionOverride[]
+  employeeProfile         EmployeeProfile?
+  department              Department?              @relation(fields: [departmentId], references: [id])
+  auditEvents             AuditEvent[]             @relation("AuditActor")
+  approvalDecisions       ApprovalDecision[]
+  devicePushTokens        DevicePushToken[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+
+  @@index([status])
+  @@index([departmentId])
+}
+
+model UserCredential {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @unique @db.Uuid
+  passwordHash      String
+  passwordChangedAt DateTime  @default(now())
+  failedAttempts    Int       @default(0)
+  lockedUntil       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserSession {
+  id               String      @id @default(uuid()) @db.Uuid
+  userId           String      @db.Uuid
+  channel          AuthChannel
+  refreshTokenHash String
+  deviceName       String?
+  deviceLabel      String?
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  replacedById     String?     @db.Uuid
+  lastSeenAt       DateTime    @default(now())
+  createdAt        DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([refreshTokenHash])
+  @@index([expiresAt])
+}
+
+model Role {
+  id          String         @id @default(uuid()) @db.Uuid
+  code        SystemRoleCode @unique
+  name        String
+  description String?
+  isSystem    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  module      String
+  action      String
+  code        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles     RolePermission[]
+  overrides UserPermissionOverride[]
+
+  @@unique([module, action])
+  @@index([module])
+}
+
+model RolePermission {
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model UserPermissionOverride {
+  id           String  @id @default(uuid()) @db.Uuid
+  userId       String  @db.Uuid
+  permissionId String  @db.Uuid
+  granted      Boolean
+  reason       String?
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+}
+
+model EmployeeProfile {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @unique @db.Uuid
+  employeeCode String?   @unique
+  jobTitle     String?
+  phone        String?
+  hireDate     DateTime? @db.Date
+  warehouseIds String[]  @db.Uuid
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuditEvent {
+  id         String       @id @default(uuid()) @db.Uuid
+  actorId    String?      @db.Uuid
+  action     String
+  module     String
+  entityType String?
+  entityId   String?
+  reference  String?
+  outcome    String
+  reason     String?
+  channel    AuthChannel?
+  requestId  String?
+  ipAddress  String?
+  before     Json?
+  after      Json?
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([module, createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([requestId])
+}
+
+// ─── Catalogue ────────────────────────────────────────────────────────────────
+
+model Category {
+  id        String                @id @default(uuid()) @db.Uuid
+  code      String                @unique
+  name      String
+  parentId  String?               @db.Uuid
+  status    EntityLifecycleStatus @default(ACTIVE)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([status])
+}
+
+model Manufacturer {
+  id        String                @id @default(uuid()) @db.Uuid
+  code      String                @unique
+  name      String
+  country   String
+  status    EntityLifecycleStatus @default(ACTIVE)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  createdBy String?               @db.Uuid
+  updatedBy String?               @db.Uuid
+  version   Int                   @default(1)
+
+  products Product[]
+
+  @@index([status])
+  @@index([name])
+}
+
+model Supplier {
+  id                   String                @id @default(uuid()) @db.Uuid
+  code                 String                @unique
+  name                 String
+  country              String
+  contactName          String?
+  email                String?
+  phone                String?
+  status               EntityLifecycleStatus @default(ACTIVE)
+  onTimeDeliveryRate   Decimal?              @db.Decimal(5, 2)
+  discrepancyRate      Decimal?              @db.Decimal(5, 2)
+  rejectedQuantityRate Decimal?              @db.Decimal(5, 2)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  createdBy            String?               @db.Uuid
+  updatedBy            String?               @db.Uuid
+  version              Int                   @default(1)
+
+  shipments ImportShipment[]
+
+  @@index([status])
+  @@index([name])
+}
+
+model Department {
+  id          String                @id @default(uuid()) @db.Uuid
+  code        String                @unique
+  name        String
+  type        String
+  city        String?
+  province    String?
+  contactName String?
+  status      EntityLifecycleStatus @default(ACTIVE)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  createdBy   String?               @db.Uuid
+  updatedBy   String?               @db.Uuid
+  version     Int                   @default(1)
+
+  users     User[]
+  tenders   Tender[]
+  contracts Contract[]
+  invoices  Invoice[]
+
+  @@index([status])
+}
+
+model UnitOfMeasure {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+}
+
+model Product {
+  id              String                @id @default(uuid()) @db.Uuid
+  sku             String                @unique
+  name            String
+  description     String?
+  categoryId      String                @db.Uuid
+  manufacturerId  String                @db.Uuid
+  brand           String?
+  countryOfOrigin String?
+  packagingUnit   String
+  barcode         String?
+  taxClass        String?
+  status          EntityLifecycleStatus @default(ACTIVE)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  createdBy       String?               @db.Uuid
+  updatedBy       String?               @db.Uuid
+  version         Int                   @default(1)
+
+  category      Category             @relation(fields: [categoryId], references: [id])
+  manufacturer  Manufacturer         @relation(fields: [manufacturerId], references: [id])
+  variants      ProductVariant[]
+  shipmentLines ImportShipmentLine[]
+  tenderLines   TenderLine[]
+  contractLines ContractLine[]
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([manufacturerId])
+  @@index([name])
+  @@index([barcode])
+}
+
+model ProductVariant {
+  id               String                @id @default(uuid()) @db.Uuid
+  productId        String                @db.Uuid
+  sku              String                @unique
+  name             String
+  size             String?
+  dimensions       String?
+  material         String?
+  grade            String?
+  model            String?
+  packaging        String?
+  purchaseUnit     String
+  sellingUnit      String
+  conversionFactor Decimal               @default(1) @db.Decimal(18, 6)
+  barcode          String?
+  status           EntityLifecycleStatus @default(ACTIVE)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  product           Product              @relation(fields: [productId], references: [id])
+  inventoryLots     InventoryLot[]
+  inventoryBalances InventoryBalance[]
+  shipmentLines     ImportShipmentLine[]
+  receiptLines      GoodsReceiptLine[]
+  tenderLines       TenderLine[]
+  contractLines     ContractLine[]
+  deliveryLines     DeliveryLine[]
+  invoiceLines      InvoiceLine[]
+
+  @@index([productId])
+  @@index([barcode])
+  @@index([status])
+}
+
+// ─── Warehouses & Inventory ───────────────────────────────────────────────────
+
+model Warehouse {
+  id        String                @id @default(uuid()) @db.Uuid
+  code      String                @unique
+  name      String
+  city      String
+  address   String?
+  status    EntityLifecycleStatus @default(ACTIVE)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  locations  StorageLocation[]
+  lots       InventoryLot[]
+  balances   InventoryBalance[]
+  receipts   GoodsReceipt[]
+  deliveries Delivery[]
+  movements  InventoryMovement[]
+
+  @@index([status])
+}
+
+model StorageLocation {
+  id          String                @id @default(uuid()) @db.Uuid
+  warehouseId String                @db.Uuid
+  code        String
+  name        String
+  status      EntityLifecycleStatus @default(ACTIVE)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id])
+  lots      InventoryLot[]
+
+  @@unique([warehouseId, code])
+}
+
+model InventoryLot {
+  id               String             @id @default(uuid()) @db.Uuid
+  warehouseId      String             @db.Uuid
+  locationId       String?            @db.Uuid
+  variantId        String             @db.Uuid
+  lotNumber        String
+  manufactureDate  DateTime?          @db.Date
+  expiryDate       DateTime?          @db.Date
+  condition        InventoryCondition @default(AVAILABLE)
+  receivedAt       DateTime?
+  sourceShipmentId String?            @db.Uuid
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  warehouse Warehouse           @relation(fields: [warehouseId], references: [id])
+  location  StorageLocation?    @relation(fields: [locationId], references: [id])
+  variant   ProductVariant      @relation(fields: [variantId], references: [id])
+  balances  InventoryBalance[]
+  movements InventoryMovement[]
+
+  @@unique([warehouseId, variantId, lotNumber])
+  @@index([variantId])
+  @@index([expiryDate])
+  @@index([condition])
+}
+
+model InventoryBalance {
+  id          String             @id @default(uuid()) @db.Uuid
+  warehouseId String             @db.Uuid
+  variantId   String             @db.Uuid
+  lotId       String?            @db.Uuid
+  condition   InventoryCondition @default(AVAILABLE)
+  onHand      Decimal            @default(0) @db.Decimal(18, 6)
+  reserved    Decimal            @default(0) @db.Decimal(18, 6)
+  available   Decimal            @default(0) @db.Decimal(18, 6)
+  quarantined Decimal            @default(0) @db.Decimal(18, 6)
+  damaged     Decimal            @default(0) @db.Decimal(18, 6)
+  updatedAt   DateTime           @updatedAt
+  version     Int                @default(1)
+
+  warehouse Warehouse      @relation(fields: [warehouseId], references: [id])
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+  lot       InventoryLot?  @relation(fields: [lotId], references: [id])
+
+  @@unique([warehouseId, variantId, lotId, condition])
+  @@index([variantId])
+  @@index([warehouseId])
+}
+
+model InventoryMovement {
+  id              String       @id @default(uuid()) @db.Uuid
+  reference       String       @unique
+  type            MovementType
+  warehouseId     String       @db.Uuid
+  variantId       String       @db.Uuid
+  lotId           String?      @db.Uuid
+  quantity        Decimal      @db.Decimal(18, 6)
+  unitCost        Decimal?     @db.Decimal(18, 6)
+  sourceType      String?
+  sourceId        String?      @db.Uuid
+  sourceReference String?
+  notes           String?
+  postedById      String?      @db.Uuid
+  postedAt        DateTime     @default(now())
+  reversalOfId    String?      @db.Uuid
+  createdAt       DateTime     @default(now())
+
+  warehouse Warehouse     @relation(fields: [warehouseId], references: [id])
+  lot       InventoryLot? @relation(fields: [lotId], references: [id])
+
+  @@index([warehouseId, postedAt])
+  @@index([variantId, postedAt])
+  @@index([sourceType, sourceId])
+  @@index([type, postedAt])
+}
+
+model StockReservation {
+  id          String    @id @default(uuid()) @db.Uuid
+  warehouseId String    @db.Uuid
+  variantId   String    @db.Uuid
+  lotId       String?   @db.Uuid
+  quantity    Decimal   @db.Decimal(18, 6)
+  sourceType  String
+  sourceId    String    @db.Uuid
+  status      String    @default("ACTIVE")
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([sourceType, sourceId])
+  @@index([variantId, status])
+}
+
+// ─── Imports & Receiving ──────────────────────────────────────────────────────
+
+model ImportShipment {
+  id               String         @id @default(uuid()) @db.Uuid
+  reference        String         @unique
+  supplierId       String         @db.Uuid
+  supplierOrderRef String?
+  shippingMethod   String
+  expectedArrival  DateTime?      @db.Date
+  actualArrival    DateTime?      @db.Date
+  currency         String         @default("USD")
+  exchangeRate     Decimal        @default(1) @db.Decimal(18, 8)
+  status           ShipmentStatus @default(DRAFT)
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  createdBy        String?        @db.Uuid
+  updatedBy        String?        @db.Uuid
+  version          Int            @default(1)
+
+  supplier      Supplier              @relation(fields: [supplierId], references: [id])
+  lines         ImportShipmentLine[]
+  receipts      GoodsReceipt[]
+  discrepancies ReceiptDiscrepancy[]
+  costs         LandedCostComponent[]
+
+  @@index([status])
+  @@index([supplierId])
+  @@index([expectedArrival])
+}
+
+model ImportShipmentLine {
+  id          String  @id @default(uuid()) @db.Uuid
+  shipmentId  String  @db.Uuid
+  lineNo      Int
+  productId   String  @db.Uuid
+  variantId   String  @db.Uuid
+  description String?
+  orderedQty  Decimal @db.Decimal(18, 6)
+  receivedQty Decimal @default(0) @db.Decimal(18, 6)
+  acceptedQty Decimal @default(0) @db.Decimal(18, 6)
+  rejectedQty Decimal @default(0) @db.Decimal(18, 6)
+  unitPrice   Decimal @db.Decimal(18, 6)
+  unit        String
+
+  shipment     ImportShipment     @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  product      Product            @relation(fields: [productId], references: [id])
+  variant      ProductVariant     @relation(fields: [variantId], references: [id])
+  receiptLines GoodsReceiptLine[]
+
+  @@unique([shipmentId, lineNo])
+  @@index([variantId])
+}
+
+model GoodsReceipt {
+  id          String        @id @default(uuid()) @db.Uuid
+  reference   String        @unique
+  shipmentId  String        @db.Uuid
+  warehouseId String        @db.Uuid
+  status      ReceiptStatus @default(DRAFT)
+  receivedAt  DateTime?
+  notes       String?
+  postedAt    DateTime?
+  postedById  String?       @db.Uuid
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  createdBy   String?       @db.Uuid
+  version     Int           @default(1)
+
+  shipment  ImportShipment     @relation(fields: [shipmentId], references: [id])
+  warehouse Warehouse          @relation(fields: [warehouseId], references: [id])
+  lines     GoodsReceiptLine[]
+
+  @@index([shipmentId])
+  @@index([status])
+}
+
+model GoodsReceiptLine {
+  id             String    @id @default(uuid()) @db.Uuid
+  receiptId      String    @db.Uuid
+  shipmentLineId String    @db.Uuid
+  variantId      String    @db.Uuid
+  lotNumber      String?
+  expiryDate     DateTime? @db.Date
+  receivedQty    Decimal   @db.Decimal(18, 6)
+  acceptedQty    Decimal   @db.Decimal(18, 6)
+  rejectedQty    Decimal   @default(0) @db.Decimal(18, 6)
+  damagedQty     Decimal   @default(0) @db.Decimal(18, 6)
+  unit           String
+  notes          String?
+
+  receipt      GoodsReceipt       @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  shipmentLine ImportShipmentLine @relation(fields: [shipmentLineId], references: [id])
+  variant      ProductVariant     @relation(fields: [variantId], references: [id])
+}
+
+model ReceiptDiscrepancy {
+  id          String    @id @default(uuid()) @db.Uuid
+  shipmentId  String    @db.Uuid
+  receiptId   String?   @db.Uuid
+  type        String
+  description String
+  quantity    Decimal?  @db.Decimal(18, 6)
+  status      String    @default("OPEN")
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  shipment ImportShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model LandedCostComponent {
+  id               String  @id @default(uuid()) @db.Uuid
+  shipmentId       String  @db.Uuid
+  code             String
+  description      String
+  amount           Decimal @db.Decimal(18, 6)
+  currency         String
+  allocationMethod String  @default("BY_VALUE")
+
+  shipment ImportShipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+}
+
+// ─── Tenders & Contracts ──────────────────────────────────────────────────────
+
+model Tender {
+  id                 String       @id @default(uuid()) @db.Uuid
+  reference          String       @unique
+  title              String
+  departmentId       String       @db.Uuid
+  procuringAgency    String?
+  publishedAt        DateTime?    @db.Date
+  submissionDeadline DateTime?
+  status             TenderStatus @default(DRAFT)
+  estimatedValue     Decimal?     @db.Decimal(18, 6)
+  currency           String       @default("PKR")
+  notes              String?
+  outcomeNotes       String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  createdBy          String?      @db.Uuid
+  updatedBy          String?      @db.Uuid
+  version            Int          @default(1)
+
+  department Department            @relation(fields: [departmentId], references: [id])
+  lines      TenderLine[]
+  bids       TenderBid[]
+  contracts  Contract[]
+  securities SecurityInstrument[]
+  checklist  TenderChecklistItem[]
+
+  @@index([status])
+  @@index([departmentId])
+  @@index([submissionDeadline])
+}
+
+model TenderLine {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenderId           String   @db.Uuid
+  lineNo             Int
+  productId          String?  @db.Uuid
+  variantId          String?  @db.Uuid
+  description        String
+  quantity           Decimal  @db.Decimal(18, 6)
+  unit               String
+  estimatedUnitPrice Decimal? @db.Decimal(18, 6)
+
+  tender        Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  product       Product?        @relation(fields: [productId], references: [id])
+  variant       ProductVariant? @relation(fields: [variantId], references: [id])
+  bidLines      TenderBidLine[]
+  contractLines ContractLine[]
+
+  @@unique([tenderId, lineNo])
+}
+
+model TenderBid {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenderId    String    @db.Uuid
+  reference   String    @unique
+  status      String    @default("DRAFT")
+  totalAmount Decimal?  @db.Decimal(18, 6)
+  currency    String    @default("PKR")
+  submittedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   String?   @db.Uuid
+  version     Int       @default(1)
+
+  tender Tender          @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  lines  TenderBidLine[]
+}
+
+model TenderBidLine {
+  id           String  @id @default(uuid()) @db.Uuid
+  bidId        String  @db.Uuid
+  tenderLineId String  @db.Uuid
+  quantity     Decimal @db.Decimal(18, 6)
+  unitPrice    Decimal @db.Decimal(18, 6)
+
+  bid        TenderBid  @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  tenderLine TenderLine @relation(fields: [tenderLineId], references: [id])
+}
+
+model TenderChecklistItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenderId    String    @db.Uuid
+  code        String
+  title       String
+  required    Boolean   @default(true)
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  notes       String?
+
+  tender Tender @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+
+  @@unique([tenderId, code])
+}
+
+model Contract {
+  id           String         @id @default(uuid()) @db.Uuid
+  reference    String         @unique
+  tenderId     String?        @db.Uuid
+  departmentId String         @db.Uuid
+  title        String
+  status       ContractStatus @default(DRAFT)
+  awardedAt    DateTime?      @db.Date
+  startDate    DateTime?      @db.Date
+  endDate      DateTime?      @db.Date
+  currency     String         @default("PKR")
+  totalValue   Decimal        @default(0) @db.Decimal(18, 6)
+  notes        String?
+  closedAt     DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  createdBy    String?        @db.Uuid
+  updatedBy    String?        @db.Uuid
+  version      Int            @default(1)
+
+  tender     Tender?                    @relation(fields: [tenderId], references: [id])
+  department Department                 @relation(fields: [departmentId], references: [id])
+  lines      ContractLine[]
+  schedules  ContractDeliverySchedule[]
+  amendments ContractAmendment[]
+  deliveries Delivery[]
+  invoices   Invoice[]
+  securities SecurityInstrument[]
+
+  @@index([status])
+  @@index([tenderId])
+  @@index([departmentId])
+}
+
+model ContractLine {
+  id            String  @id @default(uuid()) @db.Uuid
+  contractId    String  @db.Uuid
+  lineNo        Int
+  tenderLineId  String? @db.Uuid
+  productId     String? @db.Uuid
+  variantId     String? @db.Uuid
+  description   String
+  awardedQty    Decimal @db.Decimal(18, 6)
+  unitPrice     Decimal @db.Decimal(18, 6)
+  unit          String
+  dispatchedQty Decimal @default(0) @db.Decimal(18, 6)
+  deliveredQty  Decimal @default(0) @db.Decimal(18, 6)
+  invoicedQty   Decimal @default(0) @db.Decimal(18, 6)
+
+  contract      Contract        @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  tenderLine    TenderLine?     @relation(fields: [tenderLineId], references: [id])
+  product       Product?        @relation(fields: [productId], references: [id])
+  variant       ProductVariant? @relation(fields: [variantId], references: [id])
+  deliveryLines DeliveryLine[]
+  invoiceLines  InvoiceLine[]
+
+  @@unique([contractId, lineNo])
+}
+
+model ContractDeliverySchedule {
+  id          String   @id @default(uuid()) @db.Uuid
+  contractId  String   @db.Uuid
+  sequence    Int
+  dueDate     DateTime @db.Date
+  description String?
+  quantity    Decimal? @db.Decimal(18, 6)
+  status      String   @default("PLANNED")
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, sequence])
+}
+
+model ContractAmendment {
+  id          String   @id @default(uuid()) @db.Uuid
+  contractId  String   @db.Uuid
+  reference   String   @unique
+  reason      String
+  effectiveAt DateTime @db.Date
+  snapshot    Json
+  createdAt   DateTime @default(now())
+  createdBy   String?  @db.Uuid
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model SecurityInstrument {
+  id          String                   @id @default(uuid()) @db.Uuid
+  reference   String                   @unique
+  type        SecurityInstrumentType
+  status      SecurityInstrumentStatus @default(DRAFT)
+  tenderId    String?                  @db.Uuid
+  contractId  String?                  @db.Uuid
+  issuingBank String?
+  amount      Decimal                  @db.Decimal(18, 6)
+  currency    String                   @default("PKR")
+  beneficiary String?
+  issueDate   DateTime?                @db.Date
+  expiryDate  DateTime?                @db.Date
+  releasedAt  DateTime?
+  notes       String?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  createdBy   String?                  @db.Uuid
+  version     Int                      @default(1)
+
+  tender   Tender?                   @relation(fields: [tenderId], references: [id])
+  contract Contract?                 @relation(fields: [contractId], references: [id])
+  events   SecurityInstrumentEvent[]
+
+  @@index([status])
+  @@index([expiryDate])
+  @@index([tenderId])
+  @@index([contractId])
+}
+
+model SecurityInstrumentEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  instrumentId String   @db.Uuid
+  fromStatus   String?
+  toStatus     String
+  note         String?
+  actorId      String?  @db.Uuid
+  createdAt    DateTime @default(now())
+
+  instrument SecurityInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+}
+
+// ─── Deliveries ───────────────────────────────────────────────────────────────
+
+model Delivery {
+  id           String         @id @default(uuid()) @db.Uuid
+  reference    String         @unique
+  contractId   String?        @db.Uuid
+  warehouseId  String         @db.Uuid
+  status       DeliveryStatus @default(DRAFT)
+  challanNo    String?
+  vehicleRef   String?
+  driverName   String?
+  assignedToId String?        @db.Uuid
+  scheduledAt  DateTime?
+  dispatchedAt DateTime?
+  deliveredAt  DateTime?
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  createdBy    String?        @db.Uuid
+  version      Int            @default(1)
+
+  contract  Contract?          @relation(fields: [contractId], references: [id])
+  warehouse Warehouse          @relation(fields: [warehouseId], references: [id])
+  lines     DeliveryLine[]
+  evidence  DeliveryEvidence[]
+  returns   DeliveryReturn[]
+
+  @@index([status])
+  @@index([contractId])
+  @@index([warehouseId])
+  @@index([assignedToId])
+}
+
+model DeliveryLine {
+  id             String  @id @default(uuid()) @db.Uuid
+  deliveryId     String  @db.Uuid
+  contractLineId String? @db.Uuid
+  variantId      String  @db.Uuid
+  lotId          String? @db.Uuid
+  quantity       Decimal @db.Decimal(18, 6)
+  pickedQty      Decimal @default(0) @db.Decimal(18, 6)
+  dispatchedQty  Decimal @default(0) @db.Decimal(18, 6)
+  unit           String
+
+  delivery     Delivery       @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  contractLine ContractLine?  @relation(fields: [contractLineId], references: [id])
+  variant      ProductVariant @relation(fields: [variantId], references: [id])
+}
+
+model DeliveryEvidence {
+  id         String   @id @default(uuid()) @db.Uuid
+  deliveryId String   @db.Uuid
+  type       String
+  documentId String?  @db.Uuid
+  notes      String?
+  capturedAt DateTime @default(now())
+  capturedBy String?  @db.Uuid
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+}
+
+model DeliveryReturn {
+  id         String   @id @default(uuid()) @db.Uuid
+  deliveryId String   @db.Uuid
+  reason     String
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+}
+
+// ─── Invoices & Payments ──────────────────────────────────────────────────────
+
+model Invoice {
+  id           String        @id @default(uuid()) @db.Uuid
+  reference    String        @unique
+  contractId   String?       @db.Uuid
+  departmentId String        @db.Uuid
+  deliveryId   String?       @db.Uuid
+  status       InvoiceStatus @default(DRAFT)
+  currency     String        @default("PKR")
+  subtotal     Decimal       @default(0) @db.Decimal(18, 6)
+  taxTotal     Decimal       @default(0) @db.Decimal(18, 6)
+  grandTotal   Decimal       @default(0) @db.Decimal(18, 6)
+  amountPaid   Decimal       @default(0) @db.Decimal(18, 6)
+  issueDate    DateTime?     @db.Date
+  dueDate      DateTime?     @db.Date
+  finalizedAt  DateTime?
+  snapshot     Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  createdBy    String?       @db.Uuid
+  version      Int           @default(1)
+
+  contract    Contract?           @relation(fields: [contractId], references: [id])
+  department  Department          @relation(fields: [departmentId], references: [id])
+  lines       InvoiceLine[]
+  versions    InvoiceVersion[]
+  allocations PaymentAllocation[]
+
+  @@index([status])
+  @@index([departmentId])
+  @@index([contractId])
+  @@index([dueDate])
+}
+
+model InvoiceLine {
+  id             String  @id @default(uuid()) @db.Uuid
+  invoiceId      String  @db.Uuid
+  contractLineId String? @db.Uuid
+  variantId      String? @db.Uuid
+  description    String
+  quantity       Decimal @db.Decimal(18, 6)
+  unitPrice      Decimal @db.Decimal(18, 6)
+  taxRate        Decimal @default(0) @db.Decimal(8, 4)
+  lineTotal      Decimal @db.Decimal(18, 6)
+
+  invoice      Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  contractLine ContractLine?   @relation(fields: [contractLineId], references: [id])
+  variant      ProductVariant? @relation(fields: [variantId], references: [id])
+}
+
+model InvoiceVersion {
+  id         String   @id @default(uuid()) @db.Uuid
+  invoiceId  String   @db.Uuid
+  versionNo  Int
+  snapshot   Json
+  documentId String?  @db.Uuid
+  createdAt  DateTime @default(now())
+  createdBy  String?  @db.Uuid
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, versionNo])
+}
+
+model Payment {
+  id            String        @id @default(uuid()) @db.Uuid
+  reference     String        @unique
+  status        PaymentStatus @default(DRAFT)
+  amount        Decimal       @db.Decimal(18, 6)
+  currency      String        @default("PKR")
+  method        String
+  paidAt        DateTime      @db.Date
+  bankReference String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  createdBy     String?       @db.Uuid
+  version       Int           @default(1)
+
+  allocations PaymentAllocation[]
+
+  @@index([status])
+  @@index([paidAt])
+}
+
+model PaymentAllocation {
+  id        String   @id @default(uuid()) @db.Uuid
+  paymentId String   @db.Uuid
+  invoiceId String   @db.Uuid
+  amount    Decimal  @db.Decimal(18, 6)
+  createdAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
+}
+
+// ─── Documents, Approvals, Notifications ──────────────────────────────────────
+
+model Document {
+  id           String   @id @default(uuid()) @db.Uuid
+  reference    String   @unique
+  title        String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String
+  checksum     String?
+  status       String   @default("AVAILABLE")
+  entityType   String?
+  entityId     String?
+  uploadedById String?  @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  versions DocumentVersion[]
+
+  @@index([entityType, entityId])
+}
+
+model DocumentVersion {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String   @db.Uuid
+  versionNo  Int
+  storageKey String
+  sizeBytes  Int
+  checksum   String?
+  createdAt  DateTime @default(now())
+  createdBy  String?  @db.Uuid
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNo])
+}
+
+model ApprovalRequest {
+  id            String         @id @default(uuid()) @db.Uuid
+  reference     String         @unique
+  module        String
+  entityType    String
+  entityId      String         @db.Uuid
+  status        ApprovalStatus @default(PENDING)
+  title         String
+  description   String?
+  requestedById String?        @db.Uuid
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  decisions ApprovalDecision[]
+
+  @@index([status])
+  @@index([entityType, entityId])
+  @@index([requestedById])
+}
+
+model ApprovalDecision {
+  id        String         @id @default(uuid()) @db.Uuid
+  requestId String         @db.Uuid
+  actorId   String         @db.Uuid
+  decision  ApprovalStatus
+  comment   String?
+  decidedAt DateTime       @default(now())
+
+  request ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  actor   User            @relation(fields: [actorId], references: [id])
+
+  @@index([requestId])
+}
+
+model Notification {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  type       String
+  title      String
+  body       String
+  entityType String?
+  entityId   String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([createdAt])
+}
+
+model NotificationPreference {
+  id      String  @id @default(uuid()) @db.Uuid
+  userId  String  @db.Uuid
+  channel String
+  type    String
+  enabled Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channel, type])
+}
+
+model DevicePushToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  token     String    @unique
+  platform  String
+  deviceId  String?
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── Platform Operations ──────────────────────────────────────────────────────
+
+model NumberSequence {
+  id        String @id @default(uuid()) @db.Uuid
+  key       String @unique
+  prefix    String
+  year      Int?
+  nextValue Int    @default(1)
+  padLength Int    @default(6)
+
+  @@index([key])
+}
+
+model IdempotencyRecord {
+  id           String   @id @default(uuid()) @db.Uuid
+  key          String
+  userId       String?  @db.Uuid
+  method       String
+  path         String
+  requestHash  String
+  responseCode Int?
+  responseBody Json?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@unique([key, userId])
+  @@index([expiresAt])
+}
+
+model OutboxEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  type          String
+  aggregateType String
+  aggregateId   String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  availableAt   DateTime     @default(now())
+  processedAt   DateTime?
+  lastError     String?
+  createdAt     DateTime     @default(now())
+
+  @@index([status, availableAt])
+  @@index([aggregateType, aggregateId])
+}
+
+model SyncOperation {
+  id              String       @id @default(uuid()) @db.Uuid
+  operationId     String       @unique
+  userId          String       @db.Uuid
+  type            String
+  entityId        String?
+  expectedVersion Int?
+  payload         Json
+  status          SyncOpStatus @default(ACCEPTED)
+  result          Json?
+  conflict        Json?
+  clientCreatedAt DateTime
+  createdAt       DateTime     @default(now())
+  appliedAt       DateTime?
+
+  @@index([userId, createdAt])
+  @@index([type, entityId])
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+  updatedBy String?  @db.Uuid
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  shortName String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

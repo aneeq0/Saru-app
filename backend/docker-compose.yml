@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: saru-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: saru
+      POSTGRES_PASSWORD: saru_dev_password
+      POSTGRES_DB: saru_international
+    ports:
+      - '5433:5432'
+    volumes:
+      - saru_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U saru -d saru_international']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: saru-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - saru_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: saru-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: saru_minio
+      MINIO_ROOT_PASSWORD: saru_minio_secret
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - saru_minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  saru_pg_data:
+  saru_redis_data:
+  saru_minio_data:

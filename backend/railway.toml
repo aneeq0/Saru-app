@@ -1,0 +1,14 @@
+# Railway project settings for the NestJS API.
+# In the Railway UI: set Root Directory to `backend` (this folder).
+# Provision Postgres + Redis plugins and map DATABASE_URL / REDIS_URL.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "pnpm run start:railway"
+healthcheckPath = "/api/health/live"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

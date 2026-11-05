@@ -1,0 +1,9 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+onlyBuiltDependencies:
+  - argon2
+  - '@scarf/scarf'
+  - prisma
+  - '@prisma/engines'
