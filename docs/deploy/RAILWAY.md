@@ -63,9 +63,33 @@ LOG_LEVEL=info
 3. Health check: `GET /api/health/live` (300s timeout)
 
 If the service shows **Crashed**, open **Deployments → Logs** and look for:
-- `FATAL missing env` → Variables tab incomplete
+- `FATAL missing env` → Variables tab incomplete (**most common**)
 - Prisma / P1001 → `DATABASE_URL` not linked to this service
 - Bootstrap / JWT errors → secrets missing or invalid
+
+### Fix `FATAL missing env` in 60 seconds
+
+1. Open **Saru-app → Variables**
+2. Click **Raw Editor** and paste (replace the JWT values with your own if you prefer):
+
+```env
+NODE_ENV=production
+API_BASE_PATH=api
+JWT_ACCESS_SECRET=<paste-64-char-random>
+JWT_REFRESH_SECRET=<paste-64-char-random>
+JWT_ACCESS_TTL=15m
+JWT_REFRESH_TTL=7d
+SESSION_COOKIE_NAME=saru_session
+SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_SAMESITE=none
+CSRF_COOKIE_NAME=XSRF-TOKEN
+LOG_LEVEL=info
+```
+
+3. Still on Variables → **New Variable** → **Add Variable Reference** → select **Postgres** → **DATABASE_URL** → name it `DATABASE_URL`
+4. Redeploy (or wait for auto-redeploy)
+
+Pushing code cannot create these Railway secrets — they must be set in the dashboard (or via `railway variables`).
 
 ## 5. Optional seed (once)
 
