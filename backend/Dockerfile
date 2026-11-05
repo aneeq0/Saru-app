@@ -10,11 +10,15 @@ RUN corepack enable && corepack prepare pnpm@10.11.1 --activate
 WORKDIR /app
 
 FROM base AS deps
+# argon2 (and similar native addons) need a C++ toolchain at install time
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/api/.npmrc ./apps/api/
 COPY packages/database/package.json ./packages/database/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --reporter=append-only
 
 FROM deps AS build
 COPY . .
