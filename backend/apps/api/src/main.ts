@@ -37,7 +37,14 @@ async function bootstrap() {
   app.useWebSocketAdapter(redisIo);
 
   app.setGlobalPrefix(config.get<string>('API_BASE_PATH', 'api'));
-  app.use(helmet({ contentSecurityPolicy: false }));
+  // cross-origin admin (Vercel) must be able to read API responses
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    }),
+  );
   app.use(cookieParser());
 
   const webOrigins = resolveWebOrigins(
@@ -48,23 +55,42 @@ async function bootstrap() {
     config.get<string>('NODE_ENV') === 'production' &&
     webOrigins.length === 0
   ) {
-    log.warn(
-      'WEB_ORIGIN is empty in production — browser CORS from the Vercel admin will fail. Set WEB_ORIGIN to your admin URL(s).',
+    log.error(
+      'WEB_ORIGIN is empty in production — set it to your Vercel URL (e.g. https://saru-app-guzv.vercel.app) or browser calls will fail CORS.',
     );
   }
 
   app.enableCors({
     origin: (
       requestOrigin: string | undefined,
-      callback: (err: Error | null, allow?: boolean) => void,
+      callback: (err: Error | null, allow?: boolean | string) => void,
     ) => {
-      if (!requestOrigin || webOrigins.includes(requestOrigin)) {
+      // Non-browser clients (no Origin) are allowed
+      if (!requestOrigin) {
         callback(null, true);
         return;
       }
+      if (webOrigins.includes(requestOrigin)) {
+        callback(null, requestOrigin);
+        return;
+      }
+      log.warn(`CORS blocked origin: ${requestOrigin}`);
       callback(null, false);
     },
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Accept',
+      'Authorization',
+      'X-CSRF-Token',
+      'X-Client',
+      'Idempotency-Key',
+      'If-Match',
+      'X-Request-Id',
+    ],
+    exposedHeaders: ['X-Request-Id'],
+    optionsSuccessStatus: 204,
   });
   app.useGlobalPipes(
     new ValidationPipe({

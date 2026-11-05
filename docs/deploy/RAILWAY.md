@@ -30,7 +30,7 @@ On the **Saru-app** service → **Variables**, set:
 | `JWT_ACCESS_SECRET` | **Yes** | Long random string (32+ chars) |
 | `JWT_REFRESH_SECRET` | **Yes** | Long random string (32+ chars) |
 | `REDIS_URL` | Optional | Add a Redis plugin if you want multi-instance Socket.IO |
-| `WEB_ORIGIN` | Recommended | Vercel admin origin(s), comma-separated |
+| `WEB_ORIGIN` | **Yes** (for Vercel) | Exact admin origin, e.g. `https://saru-app-guzv.vercel.app` |
 | `SESSION_COOKIE_SECURE` | Prod | `true` |
 | `SESSION_COOKIE_SAMESITE` | Prod | `none` |
 | `NODE_ENV` | Recommended | `production` |
